@@ -102,3 +102,56 @@ authRouter.get('/session', async (req, res, next) => {
         next(error);
     }
 });
+
+// Change password
+authRouter.post('/change-password', async (req, res, next) => {
+    try {
+        // Verify session token
+        const authHeader = req.headers.authorization;
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            return res.status(401).json({ message: 'Unauthorized' });
+        }
+
+        const token = authHeader.split(' ')[1];
+        const sessionData = JSON.parse(Buffer.from(token, 'base64').toString());
+        
+        const { currentPassword, newPassword } = req.body;
+        
+        // Get user from database
+        const { data: user, error: userError } = await supabase
+            .from('members')
+            .select('*')
+            .eq('id', sessionData.memberId)
+            .single();
+            
+        if (userError || !user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+        
+        // Verify current password
+        const { data: validPassword, error: pwError } = await supabase
+            .rpc('verify_password', { 
+                member_id: user.id,
+                password_to_check: currentPassword
+            });
+            
+        if (pwError || !validPassword) {
+            return res.status(401).json({ message: 'Current password is incorrect' });
+        }
+        
+        // Update password
+        const { error: updateError } = await supabase
+            .rpc('change_member_password', { 
+                member_id: user.id,
+                new_password: newPassword
+            });
+            
+        if (updateError) {
+            throw updateError;
+        }
+        
+        res.json({ message: 'Password updated successfully' });
+    } catch (error) {
+        next(error);
+    }
+});
