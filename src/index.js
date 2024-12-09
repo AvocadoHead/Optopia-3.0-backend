@@ -19,8 +19,9 @@ const port = process.env.PORT || 3000;
 app.use(helmet());
 app.use(cors({
     origin: ['http://localhost:5500', 'http://127.0.0.1:5000', 'http://localhost:5000', 'https://avocadohead.github.io'],
-    methods: ['GET', 'POST', 'PUT', 'DELETE'],
-    credentials: true
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    credentials: true,
+    allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 // Rate limiting
