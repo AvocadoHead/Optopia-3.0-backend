@@ -8,31 +8,56 @@ authRouter.post('/login', async (req, res, next) => {
     try {
         const { username, password } = req.body;
         
-        // Normalize the username by converting to lowercase and removing hyphens
-        const normalizedUsername = username.toLowerCase().replace(/-/g, '');
-        
-        // Check if password is correct
-        if (password !== '1234') {
-            return res.status(401).json({ message: 'Invalid password' });
+        // First try to find user by email in users table
+        const { data: user, error: userError } = await supabase
+            .from('users')
+            .select('*')
+            .eq('email', username.toLowerCase())
+            .single();
+
+        // If found in users table, verify password_hash
+        if (user && user.password_hash === password) {
+            // Find corresponding member
+            const { data: member, error: memberError } = await supabase
+                .from('members')
+                .select('*')
+                .eq('user_id', user.id)
+                .single();
+
+            if (memberError) throw memberError;
+            if (!member) {
+                return res.status(401).json({ message: 'Member profile not found' });
+            }
+
+            const sessionToken = Buffer.from(JSON.stringify({
+                memberId: member.id,
+                timestamp: Date.now()
+            })).toString('base64');
+
+            return res.json({
+                member,
+                sessionToken
+            });
         }
 
-        // Find member by normalized ID
+        // If not found in users table or password didn't match, try members table
         const { data: members, error: memberError } = await supabase
             .from('members')
-            .select('*');
+            .select('*')
+            .or(`id.eq.${username},id.eq.${username.toLowerCase()}`);
 
         if (memberError) throw memberError;
 
-        // Find member by comparing normalized IDs
         const member = members.find(m => 
-            m.id.toLowerCase().replace(/-/g, '') === normalizedUsername
+            (m.id.toLowerCase() === username.toLowerCase() || 
+             m.id.toLowerCase().replace(/-/g, '') === username.toLowerCase().replace(/-/g, '')) && 
+            m.password === password
         );
 
         if (!member) {
-            return res.status(401).json({ message: 'Member not found' });
+            return res.status(401).json({ message: 'Invalid credentials' });
         }
 
-        // Create a session token
         const sessionToken = Buffer.from(JSON.stringify({
             memberId: member.id,
             timestamp: Date.now()
