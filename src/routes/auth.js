@@ -8,27 +8,45 @@ authRouter.post('/login', async (req, res, next) => {
     try {
         const { username, password } = req.body;
         
-        // First try to find user by email in users table
-        const { data: user, error: userError } = await supabase
+        // Normalize the input
+        const normalizedInput = username.toLowerCase().trim();
+        
+        // First, try to find user by email in users table
+        const { data: userByEmail, error: userEmailError } = await supabase
             .from('users')
-            .select('*')
-            .eq('email', username.toLowerCase())
+            .select('*, members(id, name)')
+            .eq('email', normalizedInput)
             .single();
 
-        // If found in users table, verify password_hash
-        if (user && user.password_hash === password) {
-            // Find corresponding member
-            const { data: member, error: memberError } = await supabase
-                .from('members')
-                .select('*')
-                .eq('user_id', user.id)
-                .single();
+        if (userByEmail && userByEmail.password_hash === password) {
+            const sessionToken = Buffer.from(JSON.stringify({
+                memberId: userByEmail.members[0]?.id || userByEmail.id,
+                timestamp: Date.now()
+            })).toString('base64');
 
-            if (memberError) throw memberError;
-            if (!member) {
-                return res.status(401).json({ message: 'Member profile not found' });
-            }
+            return res.json({
+                member: userByEmail.members[0] || userByEmail,
+                sessionToken,
+                userId: userByEmail.id
+            });
+        }
 
+        // If not found by email or password doesn't match, 
+        // try to find member by username or normalized ID
+        const { data: members, error: memberError } = await supabase
+            .from('members')
+            .select('*')
+            .or(`id.eq.${normalizedInput},id.eq.${normalizedInput.replace(/-/g, '')}`);
+
+        if (memberError) throw memberError;
+
+        const member = members.find(m => 
+            (m.id.toLowerCase() === normalizedInput || 
+             m.id.toLowerCase().replace(/-/g, '') === normalizedInput.replace(/-/g, '')) && 
+            m.password === password
+        );
+
+        if (member) {
             const sessionToken = Buffer.from(JSON.stringify({
                 memberId: member.id,
                 timestamp: Date.now()
@@ -40,33 +58,8 @@ authRouter.post('/login', async (req, res, next) => {
             });
         }
 
-        // If not found in users table or password didn't match, try members table
-        const { data: members, error: memberError } = await supabase
-            .from('members')
-            .select('*')
-            .or(`id.eq.${username},id.eq.${username.toLowerCase()}`);
-
-        if (memberError) throw memberError;
-
-        const member = members.find(m => 
-            (m.id.toLowerCase() === username.toLowerCase() || 
-             m.id.toLowerCase().replace(/-/g, '') === username.toLowerCase().replace(/-/g, '')) && 
-            m.password === password
-        );
-
-        if (!member) {
-            return res.status(401).json({ message: 'Invalid credentials' });
-        }
-
-        const sessionToken = Buffer.from(JSON.stringify({
-            memberId: member.id,
-            timestamp: Date.now()
-        })).toString('base64');
-
-        res.json({
-            member,
-            sessionToken
-        });
+        // If no match found
+        return res.status(401).json({ message: 'Invalid credentials' });
     } catch (error) {
         next(error);
     }
