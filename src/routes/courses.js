@@ -151,3 +151,99 @@ coursesRouter.get('/search/:query', async (req, res, next) => {
         next(error);
     }
 });
+
+// Add a teacher to a course
+coursesRouter.post('/:courseId/teachers', async (req, res, next) => {
+    try {
+        // Verify session token
+        const authHeader = req.headers.authorization;
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            return res.status(401).json({ message: 'Unauthorized' });
+        }
+
+        const token = authHeader.split(' ')[1];
+        const sessionData = JSON.parse(Buffer.from(token, 'base64').toString());
+        
+        const { courseId } = req.params;
+        const { teacherId } = req.body;
+
+        // Verify the teacher is the one making the request
+        if (sessionData.user.id !== teacherId) {
+            return res.status(403).json({ message: 'Forbidden: Cannot add another teacher' });
+        }
+
+        // Check if the teacher is already associated with the course
+        const { data: existingTeachers, error: checkError } = await supabase
+            .from('course_teachers')
+            .select('*')
+            .eq('course_id', courseId)
+            .eq('teacher_id', teacherId);
+
+        if (checkError) {
+            console.error('Error checking existing teachers:', checkError);
+            return res.status(500).json({ message: 'Internal server error' });
+        }
+
+        if (existingTeachers.length > 0) {
+            return res.status(400).json({ message: 'Teacher already associated with this course' });
+        }
+
+        // Add teacher to the course
+        const { data, error } = await supabase
+            .from('course_teachers')
+            .insert({ 
+                course_id: courseId, 
+                teacher_id: teacherId 
+            })
+            .select();
+
+        if (error) {
+            console.error('Error adding teacher to course:', error);
+            return res.status(500).json({ message: 'Failed to add teacher to course' });
+        }
+
+        res.status(201).json(data[0]);
+    } catch (error) {
+        console.error('Error in POST /courses/:courseId/teachers:', error);
+        next(error);
+    }
+});
+
+// Remove a teacher from a course
+coursesRouter.delete('/:courseId/teachers', async (req, res, next) => {
+    try {
+        // Verify session token
+        const authHeader = req.headers.authorization;
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            return res.status(401).json({ message: 'Unauthorized' });
+        }
+
+        const token = authHeader.split(' ')[1];
+        const sessionData = JSON.parse(Buffer.from(token, 'base64').toString());
+        
+        const { courseId } = req.params;
+        const { teacherId } = req.body;
+
+        // Verify the teacher is the one making the request
+        if (sessionData.user.id !== teacherId) {
+            return res.status(403).json({ message: 'Forbidden: Cannot remove another teacher' });
+        }
+
+        // Remove teacher from the course
+        const { data, error } = await supabase
+            .from('course_teachers')
+            .delete()
+            .eq('course_id', courseId)
+            .eq('teacher_id', teacherId);
+
+        if (error) {
+            console.error('Error removing teacher from course:', error);
+            return res.status(500).json({ message: 'Failed to remove teacher from course' });
+        }
+
+        res.status(200).json({ message: 'Teacher removed from course' });
+    } catch (error) {
+        console.error('Error in DELETE /courses/:courseId/teachers:', error);
+        next(error);
+    }
+});
